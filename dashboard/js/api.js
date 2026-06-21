@@ -1,0 +1,216 @@
+/**
+ * OpenInstaFlow Dashboard — API Client
+ * 
+ * Handles all REST communication with the backend.
+ * Manages JWT tokens in localStorage.
+ */
+
+const API = {
+    BASE: '/api',
+
+    // ── Token management ──────────────────────────────────────────────
+    getToken() {
+        return localStorage.getItem('oif_token');
+    },
+
+    getRole() {
+        return localStorage.getItem('oif_role');
+    },
+
+    getUserData() {
+        const raw = localStorage.getItem('oif_user');
+        return raw ? JSON.parse(raw) : null;
+    },
+
+    saveAuth(data) {
+        localStorage.setItem('oif_token', data.access_token);
+        localStorage.setItem('oif_role', data.role);
+        if (data.customer) {
+            localStorage.setItem('oif_user', JSON.stringify(data.customer));
+        } else if (data.email) {
+            localStorage.setItem('oif_user', JSON.stringify({ email: data.email }));
+        }
+    },
+
+    clearAuth() {
+        localStorage.removeItem('oif_token');
+        localStorage.removeItem('oif_role');
+        localStorage.removeItem('oif_user');
+    },
+
+    isLoggedIn() {
+        return !!this.getToken();
+    },
+
+    isAdmin() {
+        return this.getRole() === 'admin';
+    },
+
+    // ── HTTP helpers ──────────────────────────────────────────────────
+    async _fetch(endpoint, options = {}) {
+        const url = `${this.BASE}${endpoint}`;
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers,
+        };
+
+        const token = this.getToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        try {
+            const resp = await fetch(url, {
+                ...options,
+                headers,
+            });
+
+            if (resp.status === 401) {
+                this.clearAuth();
+                window.location.hash = '#/login';
+                throw new Error('Session expired. Please log in again.');
+            }
+
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                throw new Error(data.detail || data.message || `HTTP ${resp.status}`);
+            }
+
+            return data;
+        } catch (err) {
+            if (err.message.includes('Session expired')) throw err;
+            throw err;
+        }
+    },
+
+    get(endpoint) {
+        return this._fetch(endpoint, { method: 'GET' });
+    },
+
+    post(endpoint, body) {
+        return this._fetch(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    },
+
+    put(endpoint, body) {
+        return this._fetch(endpoint, {
+            method: 'PUT',
+            body: JSON.stringify(body),
+        });
+    },
+
+    delete(endpoint) {
+        return this._fetch(endpoint, { method: 'DELETE' });
+    },
+
+    // ── Auth endpoints ────────────────────────────────────────────────
+    adminLogin(email, password) {
+        return this.post('/auth/admin/login', { email, password });
+    },
+
+    customerLogin(email, password) {
+        return this.post('/auth/customer/login', { email, password });
+    },
+
+    customerSignup(email, password, name, activation_code) {
+        return this.post('/auth/customer/signup', { email, password, name, activation_code });
+    },
+
+    // ── Admin endpoints ───────────────────────────────────────────────
+    getDashboardStats() {
+        return this.get('/dashboard/stats');
+    },
+
+    getCustomers() {
+        return this.get('/customers');
+    },
+
+    getCustomer(id) {
+        return this.get(`/customers/${id}`);
+    },
+
+    updateCustomer(id, data) {
+        return this.put(`/customers/${id}`, data);
+    },
+
+    deleteCustomer(id) {
+        return this.delete(`/customers/${id}`);
+    },
+
+    testCustomerToken(id) {
+        return this.post(`/customers/${id}/test`, {});
+    },
+
+    getCustomerPosts(id) {
+        return this.get(`/customers/${id}/posts`);
+    },
+
+    publishForCustomer(id, data) {
+        return this.post(`/customers/${id}/publish`, data);
+    },
+
+    scheduleForCustomer(id, data) {
+        return this.post(`/customers/${id}/schedule`, data);
+    },
+
+    getActivationCodes() {
+        return this.get('/activation-codes');
+    },
+
+    generateActivationCodes(count) {
+        return this.post('/activation-codes', { count });
+    },
+
+    deleteActivationCode(id) {
+        return this.delete(`/activation-codes/${id}`);
+    },
+
+    getAllPosts(status) {
+        const qs = status ? `?status=${status}` : '';
+        return this.get(`/posts${qs}`);
+    },
+
+    cancelPost(id) {
+        return this.delete(`/posts/${id}`);
+    },
+
+    getActivity(limit = 50) {
+        return this.get(`/activity?limit=${limit}`);
+    },
+
+    // ── Customer self-serve endpoints ─────────────────────────────────
+    getMyProfile() {
+        return this.get('/me');
+    },
+
+    updateMyProfile(data) {
+        return this.put('/me', data);
+    },
+
+    testMyToken() {
+        return this.post('/me/test-token', {});
+    },
+
+    getMyPosts(limit = 50) {
+        return this.get(`/me/posts?limit=${limit}`);
+    },
+
+    publishMyPost(data) {
+        return this.post('/me/publish', data);
+    },
+
+    scheduleMyPost(data) {
+        return this.post('/me/schedule', data);
+    },
+
+    cancelMyPost(id) {
+        return this.delete(`/me/posts/${id}`);
+    },
+
+    getMyActivity(limit = 30) {
+        return this.get(`/me/activity?limit=${limit}`);
+    },
+};

@@ -399,6 +399,12 @@ def register_tools(mcp: FastMCP, cfg: IgConfig) -> None:
             except ValueError:
                 return f"Error: Invalid datetime format: '{scheduled_time}'. Use ISO 8601, e.g. '2026-06-08T15:00:00+05:30'."
 
+            # Auto-convert Google Drive share links to direct download URLs
+            if image_url:
+                image_url = convert_gdrive_url(image_url)
+            if video_url:
+                video_url = convert_gdrive_url(video_url)
+
             # Determine media source and type
             is_local = False
             if local_path:

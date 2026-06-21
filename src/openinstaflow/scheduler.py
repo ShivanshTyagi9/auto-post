@@ -93,7 +93,7 @@ class PostScheduler:
     """
 
     def __init__(self) -> None:
-        self._scheduler = AsyncIOScheduler()
+        self._scheduler = AsyncIOScheduler(timezone=timezone.utc)
         self._posts: dict[str, ScheduledPost] = {}
         self._callbacks: dict[str, PublishCallback] = {}
         self._started = False

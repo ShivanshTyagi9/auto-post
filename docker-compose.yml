@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    volumes:
+      - ./data:/app/data  # Persist customer-uploaded media (DB itself lives in Supabase)
+    env_file: .env
+    environment:
+      - PORT=${PORT:-8000}
+      - HOST=0.0.0.0
+    restart: unless-stopped
