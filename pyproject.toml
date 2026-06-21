@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "openinstaflow"
 version = "0.1.0"
 description = "OpenInstaFlow — an MCP server for the Instagram Graph API (profile, media, insights, publishing, Pages, DMs). Bring your own Meta token."
-readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 keywords = ["mcp", "model-context-protocol", "instagram", "instagram-graph-api", "meta", "openinstaflow"]
