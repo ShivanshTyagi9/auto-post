@@ -1479,8 +1479,25 @@ async def serve_dashboard():
     """Serve the dashboard SPA."""
     index = DASHBOARD_DIR / "index.html"
     if index.exists():
-        return FileResponse(index)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
     return JSONResponse({"message": "Dashboard not found. Place dashboard files in the /dashboard directory."})
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """Static files with no-cache instead of the default heuristic caching.
+
+    Without this, browsers can serve js/css straight from cache after a deploy without ever
+    asking the server, so a stale ``api.js``/``app.js`` silently lingers (observed in
+    production — one file got revalidated on the next load, the other didn't, purely by
+    chance of each one's last fetch time). ``no-cache`` still lets the browser cache the
+    bytes, it just forces a conditional GET (cheap 304 if unchanged) on every load instead
+    of trusting a guessed freshness window.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 # Mount static asset directories (don't mount / to avoid overriding API routes)
@@ -1488,9 +1505,9 @@ if DASHBOARD_DIR.exists():
     css_dir = DASHBOARD_DIR / "css"
     js_dir = DASHBOARD_DIR / "js"
     if css_dir.exists():
-        app.mount("/css", StaticFiles(directory=str(css_dir)), name="css")
+        app.mount("/css", NoCacheStaticFiles(directory=str(css_dir)), name="css")
     if js_dir.exists():
-        app.mount("/js", StaticFiles(directory=str(js_dir)), name="js")
+        app.mount("/js", NoCacheStaticFiles(directory=str(js_dir)), name="js")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
