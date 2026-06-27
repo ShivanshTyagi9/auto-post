@@ -53,6 +53,7 @@ const App = {
                 case 'my-dashboard': return this.renderMyDashboard(root);
                 case 'my-posts': return this.renderMyPosts(root);
                 case 'my-publish': return this.renderMyPublish(root);
+                case 'my-media': return this.renderMyMedia(root);
                 case 'my-autopilot': return this.renderMyAutopilot(root);
                 case 'my-settings': return this.renderMySettings(root);
                 default: window.location.hash = '#/my-dashboard';
@@ -95,6 +96,9 @@ const App = {
             </button>
             <button class="nav-item ${activePage === 'my-publish' ? 'active' : ''}" onclick="location.hash='#/my-publish'">
                 <span class="nav-icon">🚀</span> Publish / Schedule
+            </button>
+            <button class="nav-item ${activePage === 'my-media' ? 'active' : ''}" onclick="location.hash='#/my-media'">
+                <span class="nav-icon">🖼️</span> Media
             </button>
             <button class="nav-item ${activePage === 'my-autopilot' ? 'active' : ''}" onclick="location.hash='#/my-autopilot'">
                 <span class="nav-icon">🤖</span> Autopilot
@@ -1133,53 +1137,25 @@ const App = {
     },
 
     // ══════════════════════════════════════════════════════════════════
-    // CUSTOMER: Autopilot (settings, Google Drive link, media queue)
+    // CUSTOMER: Autopilot (scheduling settings only — media lives on its own page)
     // ══════════════════════════════════════════════════════════════════
 
     async renderMyAutopilot(root) {
         this.withLayout(root, 'my-autopilot', 'Autopilot', '', UI.loading());
 
-        const params = new URLSearchParams(this.hashQuery || '');
-        const gdriveParam = params.get('gdrive');
-        if (gdriveParam === 'connected') UI.toast('Google Drive connected!', 'success');
-        else if (gdriveParam === 'error') UI.toast('Could not connect Google Drive. Please try again.', 'error');
-        if (gdriveParam) {
-            this.hashQuery = '';
-            window.location.hash = '#/my-autopilot'; // consume the one-shot param so it doesn't re-toast
-        }
-
         try {
-            const [autopilotRes, driveRes, mediaRes] = await Promise.all([
-                API.getAutopilotSettings(),
-                API.getDriveStatus(),
-                API.getMediaQueue(),
-            ]);
-            const a = autopilotRes.autopilot;
-            const drive = driveRes;
-            const assets = mediaRes.assets || [];
+            const { autopilot: a } = await API.getAutopilotSettings();
             const body = document.getElementById('page-body');
-
-            let folderOptions = '';
-            if (drive.connected) {
-                try {
-                    const { folders } = await API.listDriveFolders();
-                    folderOptions = folders.map(f =>
-                        `<option value="${UI.esc(f.id)}" ${f.id === drive.folder_id ? 'selected' : ''}>${UI.esc(f.name)}</option>`
-                    ).join('');
-                } catch (err) {
-                    folderOptions = '';
-                }
-            }
 
             body.innerHTML = `
                 <div style="max-width: 700px;">
-                    <div class="card mb-3 slide-up">
+                    <div class="card slide-up">
                         <div class="card-header">
                             <h3>Autopilot Settings</h3>
                             <button class="btn btn-sm btn-secondary" onclick="App.runAutopilotNow()">Run Now</button>
                         </div>
                         <div class="card-body">
-                            <p class="text-sm text-muted mb-2">When enabled, the growth agent picks the oldest queued media, writes a caption, and ${a.auto_publish ? 'publishes' : 'drafts for your approval'} it on a recurring schedule.</p>
+                            <p class="text-sm text-muted mb-2">When enabled, the growth agent picks the oldest queued media (see the <a href="#/my-media">Media</a> page), writes a caption, and ${a.auto_publish ? 'publishes' : 'drafts for your approval'} it on a recurring schedule.</p>
                             <form id="autopilot-form" onsubmit="App.saveAutopilotSettings(event)">
                                 <div class="form-group">
                                     <label><input type="checkbox" id="ap-enabled" ${a.enabled ? 'checked' : ''}> Enable autopilot</label>
@@ -1219,7 +1195,99 @@ const App = {
                             </form>
                         </div>
                     </div>
+                </div>
+            `;
+        } catch (err) {
+            document.getElementById('page-body').innerHTML = `<p style="color:var(--accent-red);">Error: ${UI.esc(err.message)}</p>`;
+        }
+    },
 
+    async saveAutopilotSettings(e) {
+        e.preventDefault();
+        const btn = document.getElementById('ap-save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+            const hoursRaw = document.getElementById('ap-preferred-hours').value;
+            const preferred_hours = hoursRaw
+                .split(',')
+                .map(s => parseInt(s.trim(), 10))
+                .filter(n => !isNaN(n));
+
+            await API.updateAutopilotSettings({
+                enabled: document.getElementById('ap-enabled').checked,
+                auto_publish: document.getElementById('ap-auto-publish').checked,
+                posts_per_week: parseInt(document.getElementById('ap-posts-per-week').value, 10) || 1,
+                preferred_hours,
+                timezone: document.getElementById('ap-timezone').value || 'UTC',
+                niche: document.getElementById('ap-niche').value,
+                tone: document.getElementById('ap-tone').value,
+                goal: document.getElementById('ap-goal').value,
+                target_location: document.getElementById('ap-location').value,
+            });
+            UI.toast('Autopilot settings saved!', 'success');
+            this.route();
+        } catch (err) {
+            UI.toast(err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Save Settings';
+        }
+    },
+
+    async runAutopilotNow() {
+        UI.toast('Asking the growth agent to plan a post...', 'info');
+        try {
+            const result = await API.runAutopilotNow();
+            if (result.status === 'planned') {
+                UI.toast('Post planned! Check My Posts.', 'success');
+            } else {
+                UI.toast(result.message || 'No post was planned.', 'info');
+            }
+        } catch (err) {
+            UI.toast(err.message, 'error');
+        }
+    },
+
+    // ══════════════════════════════════════════════════════════════════
+    // CUSTOMER: Media (Google Drive link + upload + media queue)
+    // ══════════════════════════════════════════════════════════════════
+
+    async renderMyMedia(root) {
+        this.withLayout(root, 'my-media', 'Media', '', UI.loading());
+
+        const params = new URLSearchParams(this.hashQuery || '');
+        const gdriveParam = params.get('gdrive');
+        if (gdriveParam === 'connected') UI.toast('Google Drive connected!', 'success');
+        else if (gdriveParam === 'error') UI.toast('Could not connect Google Drive. Please try again.', 'error');
+        if (gdriveParam) {
+            this.hashQuery = '';
+            window.location.hash = '#/my-media'; // consume the one-shot param so it doesn't re-toast
+        }
+
+        try {
+            const [driveRes, mediaRes] = await Promise.all([
+                API.getDriveStatus(),
+                API.getMediaQueue(),
+            ]);
+            const drive = driveRes;
+            const assets = mediaRes.assets || [];
+            const body = document.getElementById('page-body');
+
+            let folderOptions = '';
+            if (drive.connected) {
+                try {
+                    const { folders } = await API.listDriveFolders();
+                    folderOptions = folders.map(f =>
+                        `<option value="${UI.esc(f.id)}" ${f.id === drive.folder_id ? 'selected' : ''}>${UI.esc(f.name)}</option>`
+                    ).join('');
+                } catch (err) {
+                    folderOptions = '';
+                }
+            }
+
+            body.innerHTML = `
+                <div style="max-width: 700px;">
                     <div class="card mb-3 slide-up">
                         <div class="card-header">
                             <h3>Google Drive</h3>
@@ -1285,53 +1353,6 @@ const App = {
             `;
         } catch (err) {
             document.getElementById('page-body').innerHTML = `<p style="color:var(--accent-red);">Error: ${UI.esc(err.message)}</p>`;
-        }
-    },
-
-    async saveAutopilotSettings(e) {
-        e.preventDefault();
-        const btn = document.getElementById('ap-save-btn');
-        btn.disabled = true;
-        btn.textContent = 'Saving...';
-
-        try {
-            const hoursRaw = document.getElementById('ap-preferred-hours').value;
-            const preferred_hours = hoursRaw
-                .split(',')
-                .map(s => parseInt(s.trim(), 10))
-                .filter(n => !isNaN(n));
-
-            await API.updateAutopilotSettings({
-                enabled: document.getElementById('ap-enabled').checked,
-                auto_publish: document.getElementById('ap-auto-publish').checked,
-                posts_per_week: parseInt(document.getElementById('ap-posts-per-week').value, 10) || 1,
-                preferred_hours,
-                timezone: document.getElementById('ap-timezone').value || 'UTC',
-                niche: document.getElementById('ap-niche').value,
-                tone: document.getElementById('ap-tone').value,
-                goal: document.getElementById('ap-goal').value,
-                target_location: document.getElementById('ap-location').value,
-            });
-            UI.toast('Autopilot settings saved!', 'success');
-            this.route();
-        } catch (err) {
-            UI.toast(err.message, 'error');
-            btn.disabled = false;
-            btn.textContent = 'Save Settings';
-        }
-    },
-
-    async runAutopilotNow() {
-        UI.toast('Asking the growth agent to plan a post...', 'info');
-        try {
-            const result = await API.runAutopilotNow();
-            if (result.status === 'planned') {
-                UI.toast('Post planned! Check My Posts.', 'success');
-            } else {
-                UI.toast(result.message || 'No post was planned.', 'info');
-            }
-        } catch (err) {
-            UI.toast(err.message, 'error');
         }
     },
 

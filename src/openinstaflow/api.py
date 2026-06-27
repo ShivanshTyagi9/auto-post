@@ -990,7 +990,7 @@ async def google_drive_auth_url(payload: dict = Depends(require_customer)):
 async def google_drive_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     """OAuth redirect target — Google sends the customer's browser here directly (no auth header)."""
     base = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
-    settings_url = f"{base}/#/my-autopilot"
+    settings_url = f"{base}/#/my-media"
 
     customer_id = gdrive_oauth.decode_state(state) if state else None
     if error or not code or not customer_id:
