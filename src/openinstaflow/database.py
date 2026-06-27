@@ -160,19 +160,19 @@ def init_db(database_url: Optional[str] = None) -> None:
     # Create all tables
     Base.metadata.create_all(bind=_engine)
 
-    # SQLite-only: patch columns onto a pre-existing on-disk file from before they were
-    # added to the models. Irrelevant for Postgres/Supabase — create_all() above already
-    # creates the full current schema from scratch on a fresh database.
-    if is_sqlite:
-        _migrate_schema()
+    # Patch columns onto a table that already existed before the column was added to the
+    # model — applies to BOTH SQLite and Postgres/Supabase. create_all() above only creates
+    # *missing tables*; it never ALTERs an existing table to add a column the model gained
+    # since that table was first created.
+    _migrate_schema(is_sqlite)
 
 
-def _migrate_schema() -> None:
-    """Add columns that were introduced after a table already existed on disk."""
+def _migrate_schema(is_sqlite: bool) -> None:
+    """Add columns that were introduced after a table already existed."""
     additions = {
         "posts": [
             ("media_asset_id", "VARCHAR(36)"),
-            ("auto_generated", "BOOLEAN DEFAULT 0"),
+            ("auto_generated", "BOOLEAN DEFAULT 0" if is_sqlite else "BOOLEAN DEFAULT FALSE"),
             ("caption_source", "VARCHAR(20)"),
         ],
         "customers": [
@@ -187,11 +187,18 @@ def _migrate_schema() -> None:
         ],
     }
     with _engine.connect() as conn:
-        for table, columns in additions.items():
-            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
-            for name, ddl_type in columns:
-                if name not in existing:
-                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
+        if is_sqlite:
+            # SQLite's ALTER TABLE has no IF NOT EXISTS, so check PRAGMA table_info first.
+            for table, columns in additions.items():
+                existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+                for name, ddl_type in columns:
+                    if name not in existing:
+                        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
+        else:
+            # Postgres supports IF NOT EXISTS directly, so this is idempotent on every startup.
+            for table, columns in additions.items():
+                for name, ddl_type in columns:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl_type}")
         conn.commit()
 
 
